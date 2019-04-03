@@ -444,15 +444,15 @@ void displayLCDBME280Data(void){
   tft.setFont(&FreeSans18pt7b);
   tft.setTextSize(1);
   tft.setRotation(3);
-  if(temperature > otemperature) {tft.setTextColor(ILI9341_MAROON);}else{tft.setTextColor(ILI9341_CYAN);}
+  if(temperature > otemperature) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
   tft.print("T:");
   tft.print(temperature);
   tft.println("%");
-  if(humidity > ohumidity) {tft.setTextColor(ILI9341_MAROON);}else{tft.setTextColor(ILI9341_CYAN);}
+  if(humidity > ohumidity) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
   tft.print("H:");
   tft.print(humidity);
   tft.println("% RH");  
-  if(pressure > opressure) {tft.setTextColor(ILI9341_MAROON);}else{tft.setTextColor(ILI9341_CYAN);}
+  if(pressure > opressure) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
   tft.print("P:");
   tft.print(pressure);
   tft.println(" atm");
