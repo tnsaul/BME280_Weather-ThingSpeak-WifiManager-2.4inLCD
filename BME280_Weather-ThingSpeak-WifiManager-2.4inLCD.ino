@@ -132,7 +132,7 @@
   uint32_t delayMS;
   // Set up some time variables
   // 2^32 -1 - gives me about 24 days before it rolls over.
-  unsigned long oldTime, newTime;
+  unsigned long oldTime, newTime, clockTime;
   // 5 minutes = 1000 x 60 x 5 = 300000
   #define THINGSPEAKDELAY 300000            // This is how long between measures.
 
@@ -215,8 +215,6 @@ void setup() {
 
   // Do the initial write to ThingSpeak so it is easier to debug.
   writeThingSpeak();
-
-  Serial.print(getNTPTime());
 }
 /* ==== END Setup ==== */
 
@@ -233,8 +231,9 @@ void loop() {
 
   if((newTime - oldTime) > THINGSPEAKDELAY){
     oldTime = newTime;
+    clockTime = newTime;
     
-    Serial.print(getNTPTime());
+    Serial.print(getNTPTime(0));
     
     // BME code, and we'll have a nap at the end
     takeBME280Reading();
@@ -244,6 +243,11 @@ void loop() {
     // Write it to the CLoud
     writeThingSpeak();
 
+  }
+  else if((newTime - clockTime) > 1000*60){
+    // Update the clock
+    clockTime = newTime;
+    displayTimeOfDay(getNTPTime(1));
   }
 
   // Check to see if the WiFi reset button is pressed (LOW)
@@ -441,31 +445,46 @@ void displayLCDBME280Data(void){
   tft.setCursor(0, 28);
   // Cyan is the base colour; used for reducing numbers also
   tft.setTextColor(ILI9341_CYAN);
-  tft.setFont(&FreeSans18pt7b);
   tft.setTextSize(1);
   tft.setRotation(3);
   if(temperature > otemperature) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
+  tft.setFont(&FreeSans18pt7b);
   tft.print("T:");
-  tft.print(temperature);
-  tft.println("%");
+  tft.print(temperature,1);
+  tft.setFont(&FreeSans12pt7b);
+  tft.println("*C");
   if(humidity > ohumidity) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
+  tft.setFont(&FreeSans18pt7b);
   tft.print("H:");
-  tft.print(humidity);
+  tft.print(humidity,0);
+  tft.setFont(&FreeSans12pt7b);
   tft.println("% RH");  
   if(pressure > opressure) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
+  tft.setFont(&FreeSans18pt7b);
   tft.print("P:");
-  tft.print(pressure);
+  tft.print(pressure,3);
+  tft.setFont(&FreeSans12pt7b);
   tft.println(" atm");
+  displayTimeOfDay(getNTPTime(1));
+}
 
+// Simple TFT function to display a ToD string value
+void displayTimeOfDay(const char* currenttime){
+  tft.fillRect(20,150,200,75,ILI9341_BLACK);
   tft.setCursor(20,200);
   tft.setFont(&FreeSans18pt7b);
   tft.setTextSize(2);
   tft.setTextColor(ILI9341_LIGHTGREY);
-  tft.println(getNTPTime());
+  tft.println(currenttime);
 }
 
 /* =============================================== */
-const char* getNTPTime()
+// getNTPTime reads the time from a NTP source (internet required)
+// Input format:
+//  fmt = 0 -> return as hh:mm:ss
+//  fmt = 1 -> return as hh:mm
+
+const char* getNTPTime(int fmt)
 {
   // Allocate some memory for the return string
   static char timeofday[20];  
@@ -528,7 +547,12 @@ const char* getNTPTime()
     //hours = static_cast<int>((epoch  % 86400L) / 3600);
     //minutes = static_cast<int>((epoch  % 3600) / 60);
     //seconds = static_cast<int>(epoch % 60);
-    sprintf(timeofday,"%02d:%02d:%02d",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60, epoch % 60);
+    if (fmt == 0){
+      sprintf(timeofday,"%02d:%02d:%02d",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60, epoch % 60);
+    }
+    else{
+      sprintf(timeofday,"%02d:%02d",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60);      
+    }
   }
   return timeofday;
 }
