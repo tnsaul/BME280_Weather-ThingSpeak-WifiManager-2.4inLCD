@@ -4,6 +4,7 @@
 // v1 First cut from existing other code.  Using NodeMCU 8266 Board.
 // v2 Forked from BME280_Weather-ThingSpeak-WifiManager-LCD Project and
 //    replaced 2 Line LCD with LOLIN2.4in TCT LCD and changed to D1 Mini.
+// v3 20190413 Minor updates; changed pressure to hPa.
 //
 //==========================================================
 //  D1 Mini GPIO Pins:
@@ -395,7 +396,7 @@ void takeBME280Reading(void){
   opressure = pressure;
   otemperature = temperature;
   ohumidity = humidity; 
-  uint8_t pressureUnit(3);                                           // unit: B000 = Pa, B001 = hPa, B010 = Hg, B011 = atm, B100 = bar, B101 = torr, B110 = N/m^2, B111 = psi
+  uint8_t pressureUnit(B001);                                           // unit: B000 = Pa, B001 = hPa, B010 = Hg, B011 = atm, B100 = bar, B101 = torr, B110 = N/m^2, B111 = psi
   bme.read(pressure, temperature, humidity, metric, pressureUnit);   // Parameters: (float& pressure, float& temp, float& humidity, bool celsius = false, uint8_t pressureUnit = 0x0)
   /*
   Keep in mind the temperature is used for humidity and
@@ -422,7 +423,7 @@ void printBME280Data(Stream* client){
   client->print("% RH");
   client->print("\t\tPressure: ");
   client->print(pressure);
-  client->print(" atm");
+  client->print(" hPa");
 }
 
 
@@ -456,15 +457,15 @@ void displayLCDBME280Data(void){
   if(humidity > ohumidity) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
   tft.setFont(&FreeSans18pt7b);
   tft.print("H:");
-  tft.print(humidity,0);
+  tft.print(humidity,1);
   tft.setFont(&FreeSans12pt7b);
   tft.println("% RH");  
   if(pressure > opressure) {tft.setTextColor(ILI9341_MAGENTA);}else{tft.setTextColor(ILI9341_CYAN);}
   tft.setFont(&FreeSans18pt7b);
   tft.print("P:");
-  tft.print(pressure,3);
+  tft.print(pressure,1);
   tft.setFont(&FreeSans12pt7b);
-  tft.println(" atm");
+  tft.println(" hPa");
   displayTimeOfDay(getNTPTime(1));
 }
 
@@ -618,5 +619,3 @@ void displayMakeBlack(void)
 
  
 /* ==== END Functions ==== */
-
-
