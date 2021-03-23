@@ -10,8 +10,8 @@
 #include <Ticker.h>
 
 // This is actually managed by WifiManager now
-const char* ssid = "Telstra53B1";
-const char* password = "4611361405";
+const char* ssid = "ssid";
+const char* password = "password";
 
 //==== BME280 Includes =====================================
 #include <BME280I2C.h>
@@ -21,8 +21,8 @@ const char* password = "4611361405";
 #include "ThingSpeak.h"
 
 // ThingSpeak information
-unsigned long myChannelID = 140277;
-const char * myWriteAPIKey = "056I9AXF4S1QN0F5";
+unsigned long myChannelID = 12345;
+const char * myWriteAPIKey = "01234567890";
 
 //==== 2.4in TFT LCD Includes ==============================
 //  Setup latest Adafruit_GFX, Adafruit_ILI9341 and XPT2046_Touchscreen Library first:

@@ -10,8 +10,8 @@
 #include <Ticker.h>
 
 // This is actually managed by WifiManager now
-const char* ssid = "Telstra53B1";
-const char* password = "4611361405";
+const char* ssid = "ssid";
+const char* password = "password";
 
 //==== BME280 Includes =====================================
 #include <BME280I2C.h>
