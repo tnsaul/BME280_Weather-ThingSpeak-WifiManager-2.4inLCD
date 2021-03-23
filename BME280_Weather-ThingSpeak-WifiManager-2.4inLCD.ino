@@ -1,3 +1,4 @@
+#include "Arduino.h"
 //==========================================================
 //
 // Change History:
@@ -5,6 +6,10 @@
 // v2 Forked from BME280_Weather-ThingSpeak-WifiManager-LCD Project and
 //    replaced 2 Line LCD with LOLIN2.4in TCT LCD and changed to D1 Mini.
 // v3 20190413 Minor updates; changed pressure to hPa.
+// v4 Move to PlatformIO for development
+// v5 Add TouchScreen basics
+// v6 Adding Filesystem for storing ThingSpeak information rather than hard-coding it
+// v7 Updated BME280 library to v3.0 with necessary alterations.
 //
 //==========================================================
 //  D1 Mini GPIO Pins:
@@ -97,18 +102,38 @@
 
 //====  END Includes =======================================
 
-/* ==== General Defines ==== */
-#define SERIAL_BAUD 115200
-#define WIFIRESETBUTTON D3
-/* ==== END Defines ==== */
-
 /* ==== BME280 Global Variables ==== */
-  BME280I2C bme;                // Default : forced mode, standby time = 1000 ms
-                                // Oversampling = pressure ×1, temperature ×1, humidity ×1, filter off,
+  /* Recommended Modes -
+    Based on Bosch BME280I2C environmental sensor data sheet.
+
+  Weather Monitoring :
+    forced mode, 1 sample/minute
+    pressure ×1, temperature ×1, humidity ×1, filter off
+    Current Consumption =  0.16 μA
+    RMS Noise = 3.3 Pa/30 cm, 0.07 %RH
+    Data Output Rate 1/60 Hz
+  */
+
+  BME280I2C_BRZO::Settings settings(
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::Mode_Forced,
+    BME280::StandbyTime_1000ms,
+    BME280::Filter_Off,
+    BME280::SpiEnable_False,
+    400
+    //BME280I2C::I2CAddr_0x76 // I2C address. I2C specific.
+  );
+
+  const uint32_t I2C_ACK_TIMEOUT = 2000;
+
+  #define USING_BRZO
+  //BME280I2C_BRZO bme;
+  BME280I2C_BRZO bme(settings);  //Use the defaults
   bool metric = true;
   float temperature(NAN), humidity(NAN), pressure(NAN);
   float otemperature(NAN), ohumidity(NAN), opressure(NAN);
-  
 
 /* ==== BME280 WiFiManager Global Variables ==== */
   Ticker ticker;
@@ -120,7 +145,7 @@
   // Lookup the IP address for the host name instead
   // IPAddress timeServer(129, 6, 15, 28);  // time.nist.gov NTP server
   IPAddress timeServerIP;                   // time.nist.gov NTP server address
-  const char* ntpServerName = "time.nist.gov";
+  //const char* ntpServerName = "time.nist.gov";
   const int NTP_PACKET_SIZE = 48;           // NTP time stamp is in the first 48 bytes of the message
   const long TZOFFSET = 10 * 3600;          // TNS: Rough aproach to Timezone offset in seconds
                                             // for Austrlian EST ie GMT+10 hours
@@ -134,8 +159,8 @@
   // Set up some time variables
   // 2^32 -1 - gives me about 24 days before it rolls over.
   unsigned long oldTime, newTime, clockTime;
-  // 5 minutes = 1000 x 60 x 5 = 300000
-  #define THINGSPEAKDELAY 300000            // This is how long between measures.
+  // 15 minutes = 1000 x 60 x 15 = 300000
+  #define THINGSPEAKDELAY 900000            // This is how long between measures.
 
 /* ====  WiFiManager Variables ==== */
   // Really not pretty passing around globals like this.  Should review and do as pointers etc.
@@ -143,7 +168,7 @@
 
 /* ==== 2.4in TFT LCD Display Variables ==== */
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
-  
+XPT2046_Touchscreen ts(TS_CS);  
   
 /* ==== END Global Variables ==== */
 
@@ -157,37 +182,53 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 void setup() {
   Serial.begin(SERIAL_BAUD);
   while(!Serial) {} // Wait
+
+  // Start the TFT Display
   tft.begin();
   displayDiagnostics();
   tft.setFont(&FreeSans9pt7b);
   displayMakeBlack();
   tft.setRotation(3);
   tft.setCursor(0, 19);
-  
+
+  // Start the TouchScreen
+  ts.begin();
+  ts.setRotation(3);
+
+  // Start the BME280 Sensor
   // Use the template begin(int SDA, int SCL);
   // SDA = D2 = GPIO4
   // SCL = D1 = GPIO5
-  while(!bme.begin(SDA,SCL)){
+  brzo_i2c_setup(SDA,SCL,I2C_ACK_TIMEOUT);
+  while(!bme.begin()){
     Serial.println("Could not find BME280 sensor!");    
-    tft.println("Could not find BME280 sensor!");
+    tft.println("Could not find BME280 sensor! v7.4");
     delay(1000);
   }
 
   // starttime = millis();//get the current time;
 
   // set a button input to know when to reset the WiFi
-  pinMode(WIFIRESETBUTTON, INPUT);
+  //pinMode(WIFIRESETBUTTON, INPUT);
   
   // set led pin as output
-  pinMode(BUILTIN_LED, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
 
   // Print a message to the LCD
-  tft.println("Starting!");
+  tft.println("Starting! 7.4");
 
     
   // This loops until the WIFI is configured
   tft.println("Configuring WiFi...");
   tft.println("Check WebServer (default ip 192.168.4.1) if no WiFi connection.");
+  // Try and get any saved credentials
+  getThingsSpeakCreds();
+  // id/name, placeholder/prompt, default, length
+  WiFiManagerParameter thingspeakchannelID("channelID", "ThingSpeak Channel ID", myChannelID, 10);
+  wifiManager.addParameter(&thingspeakchannelID);          
+  WiFiManagerParameter thingspeakchannelAPIKey("APIKey", "ThingSpeak API Key", myWriteAPIKey, 20);
+  wifiManager.addParameter(&thingspeakchannelAPIKey);   
+  
   configureWIFI(false);
 
 //  tft.clear();
@@ -215,6 +256,9 @@ void setup() {
   displayLCDBME280Data();
 
   // Do the initial write to ThingSpeak so it is easier to debug.
+  // This is continually fail if we have not loaded the correct 
+  // credentials during setting up.
+  getThingsSpeakCreds();
   writeThingSpeak();
 }
 /* ==== END Setup ==== */
@@ -224,10 +268,9 @@ void setup() {
 //==========================================================
 void loop() {
   // LED OFF
-  digitalWrite(BUILTIN_LED, HIGH);
-  //displayMakeBlack();
+  digitalWrite(LED_BUILTIN, HIGH);
   
-  // Measure the temperature etc  every 5 minutes and send to ThingSpeak
+  // Measure the temperature etc every 5 minutes and send to ThingSpeak
   newTime = millis();
 
   if((newTime - oldTime) > THINGSPEAKDELAY){
@@ -253,15 +296,51 @@ void loop() {
 
   // Check to see if the WiFi reset button is pressed (LOW)
   // I'm sure this can be done neater.
-  if (!digitalRead(WIFIRESETBUTTON)){
-    // OK the reset button is set
-    Serial.println("WIFIRESETBUTTON pressed");
-//    tft.clear();
-    tft.setCursor(0, 0);
-    tft.println("WiFi Reset");
-    tft.println("See 192.168.4.1");
-    configureWIFI(true);
+  //if (!digitalRead(WIFIRESETBUTTON)){
+  // OK the reset button is set
+  //  Serial.println("WIFIRESETBUTTON pressed");
+  //  tft.setCursor(0, 19);
+  // tft.println("WiFi Reset");
+  //  tft.println("See 192.168.4.1");
+  //  configureWIFI(true);
+  //}
+
+  // Last thing to do is check for someone touching me
+  if (ts.touched()){
+    // Let the user know they touched the screen THEN decide if they have held it
+    Serial.println("TFT: Touched");
+    tft.fillScreen(ILI9341_RED);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(&FreeSans24pt7b);
+    tft.setCursor(20,150);
+    tft.setTextSize(2);
+    tft.println("Ouchie !");
+    //TS_Point p = ts.getPoint();
+    // Wait 2 secs to see if we are doing a reset of the WiFi
+    delay(2000);
+    if (!ts.touched() ){
+      // OK fun over - rewrite the display.
+      Serial.println("TFT: Short Touch");
+      displayLCDBME280Data();
+    } else{
+      // We assume that we have touched the screen long enough
+      Serial.println("TFT: Long Touch");
+      tft.fillScreen(ILI9341_RED);
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setFont(&FreeSans24pt7b);
+      tft.setCursor(20,150);
+      tft.setTextSize(2);
+      tft.println("Reset !");
+      delay(1000);
+      //configureWIFI(true);
+      // OK fun over - rewrite the display.
+      displayLCDBME280Data();      
+    }
+
   }
+  
+
+
 }
 /* ==== End Loop ==== */
 
@@ -274,6 +353,7 @@ void loop() {
 // POST: sent current_temp; current_humidity to ThingSpeak "myChannelID"
 //==========================================================
 void writeThingSpeak(){
+  char *eptr;  // Needed only fro strtoul function; not used in anger.
  
   // Write to ThingSpeak. There are up to 8 fields in a channel, allowing you to store up to 8 different
   // pieces of information in a channel.  
@@ -282,7 +362,7 @@ void writeThingSpeak(){
   ThingSpeak.setField(2,humidity);
 
   // Write the fields to ThingSpeak
-  ThingSpeak.writeFields(myChannelID, myWriteAPIKey);
+  ThingSpeak.writeFields(strtoul(myChannelID, &eptr, 10), myWriteAPIKey);
   //  Possible response codes:
   //  200: OK / Success
   //  404: Incorrect API key (or invalid ThingSpeak server address)
@@ -379,8 +459,8 @@ void configModeCallback (WiFiManager *myWiFiManager) {
 // Simple LED Toggle function used in WiFiManager
 void tick(){
   //toggle state
-  int state = digitalRead(BUILTIN_LED);  // get the current state of GPIO1 pin
-  digitalWrite(BUILTIN_LED, !state);     // set pin to the opposite state
+  int state = digitalRead(LED_BUILTIN);  // get the current state of GPIO1 pin
+  digitalWrite(LED_BUILTIN, !state);     // set pin to the opposite state
 }
 
 
@@ -389,26 +469,16 @@ void tick(){
 //==========================================================
 void takeBME280Reading(void){
   // TNS - Notionally we are in "forced mode" which means we need to trigger the read then wait 8ms
-  bme.setMode(0x01);
+  //bme.setMode(0x01);
   delay(10);
 
   // Save previous readings for comparison
   opressure = pressure;
   otemperature = temperature;
   ohumidity = humidity; 
-  uint8_t pressureUnit(B001);                                           // unit: B000 = Pa, B001 = hPa, B010 = Hg, B011 = atm, B100 = bar, B101 = torr, B110 = N/m^2, B111 = psi
-  bme.read(pressure, temperature, humidity, metric, pressureUnit);   // Parameters: (float& pressure, float& temp, float& humidity, bool celsius = false, uint8_t pressureUnit = 0x0)
-  /*
-  Keep in mind the temperature is used for humidity and
-  pressure calculations. So it is more effcient to read
-  temperature, humidity and pressure all together.
-  */  
-  /* Alternatives to ReadData():
-  float temp(bool celsius = false);
-  float pres(uint8_t unit = 0);
-  float hum();
-  */  
-  
+  BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
+  BME280::PresUnit presUnit(BME280::PresUnit_hPa);
+  bme.read(pressure, temperature, humidity, tempUnit, presUnit);   // Parameters: (float& pressure, float& temp, float& humidity, bool celsius = false, uint8_t pressureUnit = 0x0) 
 }
 
 
@@ -429,15 +499,29 @@ void printBME280Data(Stream* client){
 
 /* =============================================== */
 void printBME280CalculatedData(Stream* client){
-  float altitude = bme.alt(metric);
-  float dewPoint = bme.dew(metric);
-  client->print("\t\tAltitude: ");
-  client->print(altitude);
-  client->print((metric ? "m" : "ft"));
-  client->print("\t\tDew point: ");
-  client->print(dewPoint);
-  client->println("°"+ String(metric ? 'C' :'F'));
+  EnvironmentCalculations::AltitudeUnit envAltUnit  =  EnvironmentCalculations::AltitudeUnit_Meters;
+  EnvironmentCalculations::TempUnit     envTempUnit =  EnvironmentCalculations::TempUnit_Celsius;
 
+  /// To get correct local altitude/height (QNE) the reference Pressure
+  ///    should be taken from meteorologic messages (QNH or QFF)
+  //float altitude = EnvironmentCalculations::Altitude(pressure, envAltUnit, referencePressure, outdoorTemp, envTempUnit);
+
+  //float dewPoint = EnvironmentCalculations::DewPoint(temperature, humidity, envTempUnit);
+
+  /// To get correct seaLevel pressure (QNH, QFF)
+  ///    the altitude value should be independent on measured pressure.
+  /// It is necessary to use fixed altitude point e.g. the altitude of barometer read in a map
+  //  float seaLevel = EnvironmentCalculations::EquivalentSeaLevelPressure(barometerAltitude, temperature, pressure, envAltUnit, envTempUnit);
+
+  float absHum = EnvironmentCalculations::AbsoluteHumidity(temperature, humidity, envTempUnit);
+
+  client->print("\t\tHeat Index: ");
+  float heatIndex = EnvironmentCalculations::HeatIndex(temperature, humidity, envTempUnit);
+  client->print(heatIndex);
+  client->print("°"+ String(envTempUnit == EnvironmentCalculations::TempUnit_Celsius ? "C" :"F"));
+
+  client->print("\t\tAbsolute Humidity: ");
+  client->println(absHum);
 }
 
 //==========================================================
@@ -494,7 +578,7 @@ const char* getNTPTime(int fmt)
 
   sendNTPpacket(timeServerIP); // send an NTP packet to a time server
   // wait to see if a reply is available
-  delay(1000);
+  delay(500);
   
   int cb = udp.parsePacket();
   if (!cb) {
@@ -549,10 +633,10 @@ const char* getNTPTime(int fmt)
     //minutes = static_cast<int>((epoch  % 3600) / 60);
     //seconds = static_cast<int>(epoch % 60);
     if (fmt == 0){
-      sprintf(timeofday,"%02d:%02d:%02d",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60, epoch % 60);
+      sprintf(timeofday,"%02lu:%02lu:%02lu",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60, epoch % 60);
     }
     else{
-      sprintf(timeofday,"%02d:%02d",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60);      
+      sprintf(timeofday,"%02lu:%02lu",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60);      
     }
   }
   return timeofday;
@@ -560,7 +644,7 @@ const char* getNTPTime(int fmt)
 
 /* =============================================== */
 // send an NTP request to the time server at the given address
-unsigned long sendNTPpacket(IPAddress& address)
+void sendNTPpacket(IPAddress& address)
 {
   Serial.println("sending NTP packet...");
   // set all bytes in the buffer to 0
@@ -618,4 +702,56 @@ void displayMakeBlack(void)
 }  
 
  
+void getThingsSpeakCreds(void)
+{
+  File configFile;
+  if (SPIFFS.begin()) 
+  {
+    Serial.println("Mounted file system");
+    if (SPIFFS.exists("/config.json")) 
+    {
+      //file exists, reading and loading
+      Serial.println("Reading config file");
+      configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) 
+      {
+        Serial.println("Opened config file.");
+        // size_t size = configFile.size();
+
+        DynamicJsonDocument jsonBuffer(500);
+        // Parse directly from file
+        DeserializationError err= deserializeJson(jsonBuffer, configFile);
+        if(err) 
+        {
+          Serial.print(F("DeserializeJson() failed with code "));
+          Serial.println(err.c_str());
+        }else {
+          // Loop through all the elements of the array
+          for(JsonObject repo: jsonBuffer.as<JsonArray>()) 
+          {
+            // Print the information for debugging.
+            Serial.println(repo["TS_ChannelID"].as<char*>());
+            Serial.println(repo["TS_APIKey"].as<char*>());
+            // Now actually set it.
+            strcpy(myChannelID, repo["TS_ChannelID"].as<char*>());
+            strcpy(myWriteAPIKey, repo["TS_APIKey"].as<char*>());
+          }
+        }
+        configFile.close();
+      }
+    } else{
+      Serial.println("Failed to open config file.");
+      configFile = SPIFFS.open("/config.json","w");
+      if(!configFile){
+        Serial.println("Failed to open config file.");
+      } else {
+        Serial.println("Work to do here ...");
+        SPIFFS.remove("/config.json");
+      }
+    }
+  } else {
+    Serial.println("Failed to mount FS.");
+  }
+}
+
 /* ==== END Functions ==== */
