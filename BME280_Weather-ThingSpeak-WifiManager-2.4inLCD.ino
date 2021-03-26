@@ -114,7 +114,7 @@
     Data Output Rate 1/60 Hz
   */
 
-  BME280I2C_BRZO::Settings settings(
+  BME280I2C::Settings settings(
     BME280::OSR_X1,
     BME280::OSR_X1,
     BME280::OSR_X1,
@@ -122,15 +122,15 @@
     BME280::StandbyTime_1000ms,
     BME280::Filter_Off,
     BME280::SpiEnable_False,
-    400
-    //BME280I2C::I2CAddr_0x76 // I2C address. I2C specific.
+    BME280I2C::I2CAddr_0x76 // I2C address. I2C specific.
   );
+
 
   const uint32_t I2C_ACK_TIMEOUT = 2000;
 
-  #define USING_BRZO
-  //BME280I2C_BRZO bme;
-  BME280I2C_BRZO bme(settings);  //Use the defaults
+  //#define USING_BRZO
+  //BME280I2C bme;
+  BME280I2C bme(settings);  //Use the defaults
   bool metric = true;
   float temperature(NAN), humidity(NAN), pressure(NAN);
   float otemperature(NAN), ohumidity(NAN), opressure(NAN);
@@ -145,7 +145,7 @@
   // Lookup the IP address for the host name instead
   // IPAddress timeServer(129, 6, 15, 28);  // time.nist.gov NTP server
   IPAddress timeServerIP;                   // time.nist.gov NTP server address
-  //const char* ntpServerName = "time.nist.gov";
+  const char* ntpServerName = "time.nist.gov";
   const int NTP_PACKET_SIZE = 48;           // NTP time stamp is in the first 48 bytes of the message
   const long TZOFFSET = 10 * 3600;          // TNS: Rough aproach to Timezone offset in seconds
                                             // for Austrlian EST ie GMT+10 hours
@@ -199,7 +199,8 @@ void setup() {
   // Use the template begin(int SDA, int SCL);
   // SDA = D2 = GPIO4
   // SCL = D1 = GPIO5
-  brzo_i2c_setup(SDA,SCL,I2C_ACK_TIMEOUT);
+  //brzo_i2c_setup(SDA,SCL,I2C_ACK_TIMEOUT);
+  Wire.begin();
   while(!bme.begin()){
     Serial.println("Could not find BME280 sensor!");    
     tft.println("Could not find BME280 sensor! v7.4");
@@ -223,6 +224,7 @@ void setup() {
   tft.println("Check WebServer (default ip 192.168.4.1) if no WiFi connection.");
   // Try and get any saved credentials
   getThingsSpeakCreds();
+  
   // id/name, placeholder/prompt, default, length
   WiFiManagerParameter thingspeakchannelID("channelID", "ThingSpeak Channel ID", myChannelID, 10);
   wifiManager.addParameter(&thingspeakchannelID);          

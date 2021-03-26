@@ -17,3 +17,12 @@ WiFiManager is used for initial configuration.
   any domain you try to access redirected to the configuration portal
   choose one of the access points scanned, enter password, click save
   ESP will try to connect. If successful, it relinquishes control back to your app. If not, reconnect to AP and reconfigure.
+
+## Library Dependencies  
+This programme should be compiled using the Arduino IDE.
+The following libraries and their dependencies should be loaded:
+1. Adafruit_GFX 1.10.6
+2. Adafruit_ILI9341 1.5.6
+3. XPT2046_Touchscreen v1.3.0 by PaulS toffregen 
+4. BME280 3.0.0 by Tyler Glenn (finitespace)
+5. ArduinoJson 6.17.3 by Benoit Blanchon https://arduinojson.org/?utm_source=meta&utm_medium=library.properties
