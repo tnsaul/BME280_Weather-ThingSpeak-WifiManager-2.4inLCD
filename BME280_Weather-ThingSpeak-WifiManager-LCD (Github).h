@@ -14,15 +14,18 @@ const char* ssid = "ssid";
 const char* password = "password";
 
 //==== BME280 Includes =====================================
+//  https://github.com/finitespace/BME280
+#include <EnvironmentCalculations.h>
 #include <BME280I2C.h>
 #include <Wire.h>                 // Needed for legacy versions of Arduino.
 
 //==== ThingSpeak Includes =================================
 #include "ThingSpeak.h"
+#include <ArduinoJson.h>          // https://github.com/bblanchon/ArduinoJson
 
 // ThingSpeak information
-unsigned long myChannelID = 12345;
-const char * myWriteAPIKey = "01234567890";
+char * myChannelID = "123456";
+char * myWriteAPIKey = "01234567890";
 
 //==== 2.4in TFT LCD Includes ==============================
 //  Setup latest Adafruit_GFX, Adafruit_ILI9341 and XPT2046_Touchscreen Library first:
@@ -31,6 +34,7 @@ const char * myWriteAPIKey = "01234567890";
 //  https://github.com/adafruit/Adafruit_ILI9341
 //  https://github.com/PaulStoffregen/XPT2046_Touchscreen
 
+#include <XPT2046_Touchscreen.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
@@ -51,3 +55,10 @@ const char * myWriteAPIKey = "01234567890";
 #include <Fonts/FreeSans24pt7b.h>
 
 // #define TS_CS  12  //for D32 Pro
+
+
+
+/* ==== General Defines ==== */
+#define SERIAL_BAUD 115200
+#define WIFIRESETBUTTON D3
+/* ==== END Defines ==== */

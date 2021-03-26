@@ -10,6 +10,7 @@
 // v5 Add TouchScreen basics
 // v6 Adding Filesystem for storing ThingSpeak information rather than hard-coding it
 // v7 Updated BME280 library to v3.0 with necessary alterations.
+// v8 Added time of day check to disable display at night.
 //
 //==========================================================
 //  D1 Mini GPIO Pins:
@@ -81,7 +82,7 @@
 
 
 
-//===============================================================
+//==========================================================
 //    1. !!!Make sure you using lastest ESP8266 core for Arduino, otherwise it may not work properly.
 //      https://github.com/esp8266/Arduino
 //      
@@ -98,21 +99,19 @@
 //        https://github.com/adafruit/Adafruit_ILI9341
 //    
 //        https://github.com/PaulStoffregen/XPT2046_Touchscreen
-
-
 //====  END Includes =======================================
 
-/* ==== BME280 Global Variables ==== */
-  /* Recommended Modes -
-    Based on Bosch BME280I2C environmental sensor data sheet.
+//==== BME280 Global Variables =============================
+  //  Recommended Modes -
+  //  Based on Bosch BME280I2C environmental sensor data sheet.
+  //
+  //  Weather Monitoring :
+  //    forced mode, 1 sample/minute
+  //    pressure ×1, temperature ×1, humidity ×1, filter off
+  //    Current Consumption =  0.16 μA
+  //    RMS Noise = 3.3 Pa/30 cm, 0.07 %RH
+  //    Data Output Rate 1/60 Hz
 
-  Weather Monitoring :
-    forced mode, 1 sample/minute
-    pressure ×1, temperature ×1, humidity ×1, filter off
-    Current Consumption =  0.16 μA
-    RMS Noise = 3.3 Pa/30 cm, 0.07 %RH
-    Data Output Rate 1/60 Hz
-  */
 
   BME280I2C::Settings settings(
     BME280::OSR_X1,
@@ -122,38 +121,41 @@
     BME280::StandbyTime_1000ms,
     BME280::Filter_Off,
     BME280::SpiEnable_False,
-    BME280I2C::I2CAddr_0x76 // I2C address. I2C specific.
+    BME280I2C::I2CAddr_0x76       // I2C address. I2C specific.
   );
-
+  BME280I2C bme(settings);  //Use the defaults
 
   const uint32_t I2C_ACK_TIMEOUT = 2000;
-
-  //#define USING_BRZO
-  //BME280I2C bme;
-  BME280I2C bme(settings);  //Use the defaults
   bool metric = true;
   float temperature(NAN), humidity(NAN), pressure(NAN);
   float otemperature(NAN), ohumidity(NAN), opressure(NAN);
 
-/* ==== BME280 WiFiManager Global Variables ==== */
+//==== BME280 WiFiManager Global Variables =================
   Ticker ticker;
 
-/* ==== NTP  Global Variables ==== */
-  unsigned int localPort = 2390;            // local port to listen for UDP packets
-  
-  // Don't hardwire the IP address or we won't get the benefits of the pool.
-  // Lookup the IP address for the host name instead
-  // IPAddress timeServer(129, 6, 15, 28);  // time.nist.gov NTP server
+//==== NTP  Global Variables ===============================
+  //  Don't hardwire the IP address or we won't get the benefits of the pool.
+  //  Lookup the IP address for the host name instead
+  //  IPAddress timeServer(129, 6, 15, 28);   // time.nist.gov NTP server
   IPAddress timeServerIP;                   // time.nist.gov NTP server address
   const char* ntpServerName = "time.nist.gov";
   const int NTP_PACKET_SIZE = 48;           // NTP time stamp is in the first 48 bytes of the message
   const long TZOFFSET = 10 * 3600;          // TNS: Rough aproach to Timezone offset in seconds
                                             // for Austrlian EST ie GMT+10 hours
-  byte packetBuffer[ NTP_PACKET_SIZE];      //buffer to hold incoming and outgoing packets
-  
+  byte packetBuffer[ NTP_PACKET_SIZE];      // buffer to hold incoming and outgoing packets
+  unsigned int localPort = 2390;            // local port to listen for UDP packets
   WiFiUDP udp;                              // A UDP instance to let us send and receive packets over UDP
 
-/* ====  ThingSpeak Global Variables ==== */
+  struct MYTIME{
+    int h;
+    int m;
+    int s; 
+  };
+  MYTIME mt = {0, 0, 0};                    // Use this to figure out when to have the display on.
+  MYTIME ont = {6,0,0};
+  MYTIME offt = {20,0,0};
+
+//====  ThingSpeak Global Variables ========================
   WiFiClient client;                        // Need this for ThingSpeak?
   uint32_t delayMS;
   // Set up some time variables
@@ -162,15 +164,15 @@
   // 15 minutes = 1000 x 60 x 15 = 300000
   #define THINGSPEAKDELAY 900000            // This is how long between measures.
 
-/* ====  WiFiManager Variables ==== */
+//====  WiFiManager Variables ==============================
   // Really not pretty passing around globals like this.  Should review and do as pointers etc.
   WiFiManager wifiManager;
 
-/* ==== 2.4in TFT LCD Display Variables ==== */
-Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
-XPT2046_Touchscreen ts(TS_CS);  
+//==== 2.4in TFT LCD Display Variables =====================
+  Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
+  XPT2046_Touchscreen ts(TS_CS);  
   
-/* ==== END Global Variables ==== */
+//==== END Global Variables ================================
 
 
 
@@ -196,10 +198,6 @@ void setup() {
   ts.setRotation(3);
 
   // Start the BME280 Sensor
-  // Use the template begin(int SDA, int SCL);
-  // SDA = D2 = GPIO4
-  // SCL = D1 = GPIO5
-  //brzo_i2c_setup(SDA,SCL,I2C_ACK_TIMEOUT);
   Wire.begin();
   while(!bme.begin()){
     Serial.println("Could not find BME280 sensor!");    
@@ -207,11 +205,6 @@ void setup() {
     delay(1000);
   }
 
-  // starttime = millis();//get the current time;
-
-  // set a button input to know when to reset the WiFi
-  //pinMode(WIFIRESETBUTTON, INPUT);
-  
   // set led pin as output
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -233,7 +226,6 @@ void setup() {
   
   configureWIFI(false);
 
-//  tft.clear();
   tft.println("Connected to:");
   tft.println(WiFi.localIP()); 
 
@@ -263,7 +255,7 @@ void setup() {
   getThingsSpeakCreds();
   writeThingSpeak();
 }
-/* ==== END Setup ==== */
+//==== END Setup ===========================================
 
 //==========================================================
 //===== LOOP ===============================================
@@ -272,9 +264,9 @@ void loop() {
   // LED OFF
   digitalWrite(LED_BUILTIN, HIGH);
   
-  // Measure the temperature etc every 5 minutes and send to ThingSpeak
-  newTime = millis();
 
+  newTime = millis();
+  // Measure the temperature etc every 5 minutes and send to ThingSpeak
   if((newTime - oldTime) > THINGSPEAKDELAY){
     oldTime = newTime;
     clockTime = newTime;
@@ -285,27 +277,27 @@ void loop() {
     takeBME280Reading();
     printBME280Data(&Serial);
     printBME280CalculatedData(&Serial);
-    displayLCDBME280Data();
+    // If we are during the day then display things
+    if (isDisplayTime()){
+      displayLCDBME280Data();
+    }else{
+      displayMakeBlack();
+    }
     // Write it to the CLoud
     writeThingSpeak();
 
   }
+  // Else every minute update the clock only
   else if((newTime - clockTime) > 1000*60){
     // Update the clock
     clockTime = newTime;
     displayTimeOfDay(getNTPTime(1));
+    if (isDisplayTime()){
+      displayLCDBME280Data();
+    }else{
+      displayMakeBlack();
+    }
   }
-
-  // Check to see if the WiFi reset button is pressed (LOW)
-  // I'm sure this can be done neater.
-  //if (!digitalRead(WIFIRESETBUTTON)){
-  // OK the reset button is set
-  //  Serial.println("WIFIRESETBUTTON pressed");
-  //  tft.setCursor(0, 19);
-  // tft.println("WiFi Reset");
-  //  tft.println("See 192.168.4.1");
-  //  configureWIFI(true);
-  //}
 
   // Last thing to do is check for someone touching me
   if (ts.touched()){
@@ -316,7 +308,7 @@ void loop() {
     tft.setFont(&FreeSans24pt7b);
     tft.setCursor(20,150);
     tft.setTextSize(2);
-    tft.println("Ouchie !");
+    tft.println("Ouch !");
     //TS_Point p = ts.getPoint();
     // Wait 2 secs to see if we are doing a reset of the WiFi
     delay(2000);
@@ -344,7 +336,7 @@ void loop() {
 
 
 }
-/* ==== End Loop ==== */
+//==== End Loop ============================================
 
 
 //==========================================================
@@ -504,17 +496,6 @@ void printBME280CalculatedData(Stream* client){
   EnvironmentCalculations::AltitudeUnit envAltUnit  =  EnvironmentCalculations::AltitudeUnit_Meters;
   EnvironmentCalculations::TempUnit     envTempUnit =  EnvironmentCalculations::TempUnit_Celsius;
 
-  /// To get correct local altitude/height (QNE) the reference Pressure
-  ///    should be taken from meteorologic messages (QNH or QFF)
-  //float altitude = EnvironmentCalculations::Altitude(pressure, envAltUnit, referencePressure, outdoorTemp, envTempUnit);
-
-  //float dewPoint = EnvironmentCalculations::DewPoint(temperature, humidity, envTempUnit);
-
-  /// To get correct seaLevel pressure (QNH, QFF)
-  ///    the altitude value should be independent on measured pressure.
-  /// It is necessary to use fixed altitude point e.g. the altitude of barometer read in a map
-  //  float seaLevel = EnvironmentCalculations::EquivalentSeaLevelPressure(barometerAltitude, temperature, pressure, envAltUnit, envTempUnit);
-
   float absHum = EnvironmentCalculations::AbsoluteHumidity(temperature, humidity, envTempUnit);
 
   client->print("\t\tHeat Index: ");
@@ -528,6 +509,10 @@ void printBME280CalculatedData(Stream* client){
 
 //==========================================================
 void displayLCDBME280Data(void){
+  
+  // First decide if we should blank the screen for night time
+  
+
   tft.fillScreen(ILI9341_BLACK);
   tft.setCursor(0, 28);
   // Cyan is the base colour; used for reducing numbers also
@@ -565,7 +550,7 @@ void displayTimeOfDay(const char* currenttime){
   tft.println(currenttime);
 }
 
-/* =============================================== */
+//==========================================================
 // getNTPTime reads the time from a NTP source (internet required)
 // Input format:
 //  fmt = 0 -> return as hh:mm:ss
@@ -573,6 +558,7 @@ void displayTimeOfDay(const char* currenttime){
 
 const char* getNTPTime(int fmt)
 {
+
   // Allocate some memory for the return string
   static char timeofday[20];  
   //get a random server from the pool
@@ -638,13 +624,17 @@ const char* getNTPTime(int fmt)
       sprintf(timeofday,"%02lu:%02lu:%02lu",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60, epoch % 60);
     }
     else{
-      sprintf(timeofday,"%02lu:%02lu",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60);      
+      sprintf(timeofday,"%02lu:%02lu  ",(epoch  % 86400L) / 3600, (epoch  % 3600) / 60);      
     }
+    mt.h = (epoch  % 86400L) / 3600;
+    mt.m = (epoch  % 3600) / 60;
+    mt.s = epoch % 60;
   }
+
   return timeofday;
 }
 
-/* =============================================== */
+//==========================================================
 // send an NTP request to the time server at the given address
 void sendNTPpacket(IPAddress& address)
 {
@@ -672,7 +662,7 @@ void sendNTPpacket(IPAddress& address)
 
 
 
-
+//==========================================================
 // read diagnostics (optional but can help debug problems)
 // Uses global Adafruit_ILI9341 tft
 void displayDiagnostics(void)
@@ -696,6 +686,7 @@ void displayDiagnostics(void)
   Serial.println(F("Done!"));
 }
 
+//==========================================================
 // Clear the display
 // Uses global Adafruit_ILI9341 tft
 void displayMakeBlack(void)
@@ -703,7 +694,30 @@ void displayMakeBlack(void)
   tft.fillScreen(ILI9341_BLACK);
 }  
 
- 
+//========================================================== 
+// Check for day period when we do want the display active.
+// Globals we use are MYTIME mt, ont, offt
+// Disable this by setting ont == offt
+bool isDisplayTime(void)
+{
+  // Convert the structs to simple integers
+  unsigned long mtsecs = mt.h*60*60 + mt.m*60 +mt.s;
+  unsigned long ontsecs = ont.h*60*60 + ont.m*60 +ont.s;
+  unsigned long offtsecs = offt.h*60*60 + offt.m*60 +offt.s;
+
+  String t = "Daylight check: mt " + String(mtsecs) + ":ont " + String(ontsecs) + ":offt " + String(offtsecs);
+  Serial.println(t);  
+
+  if (ontsecs == offtsecs){return true;}
+  if (mtsecs > ontsecs & mtsecs < offtsecs) {return true;}
+
+  // OK we should have the display off
+  Serial.println("Display in night mode.");
+  return false;
+}
+
+
+//========================================================== 
 void getThingsSpeakCreds(void)
 {
   File configFile;
@@ -756,4 +770,5 @@ void getThingsSpeakCreds(void)
   }
 }
 
-/* ==== END Functions ==== */
+//==== END Functions =======================================
+//==========================================================
